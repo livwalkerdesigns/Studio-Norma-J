@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Studio Norma J.</title>
+  <meta name="description" content="Studio Norma J.">
+
+  <!-- The intro from livwalkerdesigns.com: the name top left, and blue
+       dots turning on one at a time in random places on a dot grid.
+       Here it plays once and stays on the last frame.
+
+       Font: PP Neue Montreal Regular (fonts/PPNeueMontreal-Regular.otf),
+       as on the portfolio. If the file is ever missing it falls back to
+       Helvetica Neue / Arial. -->
+  <link rel="preload" href="fonts/PPNeueMontreal-Regular.otf" as="font" type="font/otf" crossorigin>
+  <style>
+    @font-face {
+      font-family: 'PP Neue Montreal';
+      src: url('fonts/PPNeueMontreal-Regular.otf') format('opentype');
+      font-weight: 400;
+      font-style: normal;
+      font-display: swap;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+      height: 100%;
+      overflow: hidden;
+      overscroll-behavior: none;
+      background: #FFFFFF;
+    }
+
+    body {
+      font-family: 'PP Neue Montreal', 'Helvetica Neue', Arial, sans-serif;
+      font-weight: 400;
+      color: #000;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* The whole screen (dvh: the part actually visible on phones). */
+    .stage {
+      position: relative;
+      height: 100vh;
+      height: 100dvh;
+      width: 100%;
+      overflow: hidden;
+    }
+
+    /* The name: the portfolio intro's type, flush to the top-left corner. */
+    .name {
+      position: absolute;
+      top: 0;
+      left: 0;
+      z-index: 1;
+      white-space: nowrap;
+      /* Regular, not the heading's default bold (only Regular is loaded,
+         so bold would be a thickened fake). */
+      font-weight: 400;
+      line-height: 1.2;
+      letter-spacing: 0;
+    }
+
+    /* Same type as the name, flush to the top-right corner. The script
+       blinks it in once the last dot is on. */
+    .soon {
+      position: absolute;
+      top: 0;
+      right: 0;
+      z-index: 1;
+      white-space: nowrap;
+      line-height: 1.2;
+      visibility: hidden;
+    }
+    .soon.is-on { visibility: visible; }
+
+    /* Both: 32px at 1280 wide (40px on taller screens), shrinking on
+       short or narrow screens. Phones: 22px at 440 wide. */
+    .name, .soon { font-size: calc(32 * min(0.078125vw, 0.13404826vh)); }
+    @media (min-width: 768px) and (max-aspect-ratio: 1280/860) {
+      .name, .soon { font-size: calc(40 * min(0.078125vw, 0.13404826vh)); }
+    }
+    @media (max-width: 767px) {
+      .name, .soon { font-size: calc(22 * 100vw / 440); }
+    }
+
+    /* Dots sit above the name and multiply with it, so it reads through. */
+    .dot {
+      position: absolute;
+      z-index: 2;
+      border-radius: 50%;
+      mix-blend-mode: multiply;
+      visibility: hidden;
+    }
+    .dot.is-on { visibility: visible; }
+  </style>
+</head>
+<body>
+  <main class="stage" id="stage">
+    <h1 class="name">Studio Norma J.</h1>
+    <p class="soon" id="soon">Coming soon.</p>
+  </main>
+
+  <script>
+    // ── Settings ───────────────────────────────────────────────────────
+    const DOT_COLOR = '#2D7AFF';
+    const DOT_COUNT = 9;       // how many dots turn on (random places, new each load)
+    const START_MS  = 400;     // before the first dot
+    const STEP_MS   = 150;     // between dots
+    const BLINKS    = 3;       // times "Coming soon." flashes on (the last one stays)
+    const BLINK_MS  = 150;     // each on or off
+
+    // The grid (as on the portfolio). Desktop: 62px dots with a 31px gap
+    // on every side, scaled like a 1280×1080 frame, centred. Phones:
+    // 12 columns across (about 24px dots at 375 wide), rows fill the height.
+    const DOT_SIZE       = 62;
+    const DESKTOP_GAP    = 31;
+    const MOBILE_COLUMNS = 12;
+    const MOBILE_GAP_X   = 81;
+    const MOBILE_GAP_Y   = 78;
+
+    // ── Animation (no need to edit below) ──────────────────────────────
+    const stage = document.getElementById('stage');
+    const desktop = matchMedia('(min-width: 768px)');
+
+    // Where the dots sit in a w×h screen.
+    function geometry(w, h) {
+      if (desktop.matches) {
+        const scale = Math.min(w / 1280, h / 1080);
+        const pitch = (DOT_SIZE + DESKTOP_GAP) * scale;
+        const cols = Math.max(1, Math.floor(w / pitch));
+        const rows = Math.max(1, Math.floor(h / pitch));
+        const left = (w - cols * pitch) / 2, top = (h - rows * pitch) / 2;
+        return {
+          r: DOT_SIZE / 2 * scale, cols, rows,
+          cx: col => left + (col + 0.5) * pitch,
+          cy: row => top + (row + 0.5) * pitch,
+        };
+      }
+      const s = w / ((MOBILE_COLUMNS - 1) * MOBILE_GAP_X + DOT_SIZE + 2);
+      return {
+        r: DOT_SIZE / 2 * s,
+        cols: MOBILE_COLUMNS,
+        rows: Math.max(1, Math.floor((h / s - DOT_SIZE) / MOBILE_GAP_Y) + 1),
+        cx: col => (1 + DOT_SIZE / 2 + col * MOBILE_GAP_X) * s,
+        cy: row => (DOT_SIZE / 2 + row * MOBILE_GAP_Y) * s,
+      };
+    }
+
+    // Random spots, picked once per grid size (so a resize doesn't
+    // reshuffle them, unless the grid itself changes).
+    const picks = {};
+    function spots(g) {
+      const key = `${g.cols}x${g.rows}`;
+      if (!picks[key]) {
+        const all = [];
+        for (let row = 0; row < g.rows; row++) for (let col = 0; col < g.cols; col++) all.push([col, row]);
+        for (let i = all.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [all[i], all[j]] = [all[j], all[i]];
+        }
+        picks[key] = all.slice(0, DOT_COUNT);
+      }
+      return picks[key];
+    }
+
+    const soon = document.getElementById('soon');
+
+    const dots = Array.from({ length: DOT_COUNT }, () => {
+      const el = document.createElement('div');
+      el.className = 'dot';
+      el.style.background = DOT_COLOR;
+      stage.appendChild(el);
+      return el;
+    });
+
+    function layout() {
+      const g = geometry(stage.clientWidth, stage.clientHeight);
+      const places = spots(g);
+      dots.forEach((el, i) => {
+        const p = places[i];
+        el.hidden = !p;
+        if (!p) return;
+        Object.assign(el.style, {
+          width: `${g.r * 2}px`, height: `${g.r * 2}px`,
+          left: `${g.cx(p[0]) - g.r}px`, top: `${g.cy(p[1]) - g.r}px`,
+        });
+      });
+    }
+    layout();
+    new ResizeObserver(layout).observe(stage);
+
+    // Wait for the font (up to a second) so the name never swaps fonts,
+    // then turn the dots on one at a time and blink the text in. If the
+    // font file is missing or fails, it all still plays.
+    const start = () => {
+      dots.forEach((el, i) => setTimeout(() => el.classList.add('is-on'), START_MS + i * STEP_MS));
+      const blinkFrom = START_MS + DOT_COUNT * STEP_MS;
+      for (let i = 0; i < BLINKS * 2 - 1; i++) {
+        setTimeout(() => soon.classList.toggle('is-on'), blinkFrom + i * BLINK_MS);
+      }
+    };
+    const fontReady = document.fonts ? document.fonts.load("16px 'PP Neue Montreal'") : Promise.resolve();
+    Promise.race([fontReady, new Promise(r => setTimeout(r, 1000))]).then(start, start);
+  </script>
+</body>
+</html>
